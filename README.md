@@ -32,7 +32,7 @@ Input: wave_mix (B, 2, T)
 ### 1. リポジトリのクローン
 
 ```bash
-git clone https://github.com/yourusername/MSRKit.git
+git clone https://github.com/axion15tth/MSRKit.git
 cd MSRKit
 ```
 
@@ -49,20 +49,38 @@ pip install -r requirements.txt
 
 ### 3. データセットの配置
 
-既存のデータセットがある場合、`setup_datasets.sh` を使用：
+既存のデータセットがある場合、`setup_datasets.sh` を使用します。
+3つの方法で指定可能です：
+
+#### 方法1: 親ディレクトリを指定（すべて同じ親の下にある場合）
 
 ```bash
-# データセットの親ディレクトリを指定
-./setup_datasets.sh /path/to/your/datasets
-
-# 例: /data 配下に MUSDB18-HQ/, MoisesDB/, RawStems-48k/ がある場合
+# /data 配下に MUSDB18-HQ/, MoisesDB/, RawStems-48k/ がある場合
 ./setup_datasets.sh /data
 ```
 
-このスクリプトは以下を実行：
-- データディレクトリへのシンボリックリンク作成
+#### 方法2: 個別にパスを指定（それぞれ異なる場所にある場合）
+
+```bash
+./setup_datasets.sh \
+  --musdb /path/to/MUSDB18-HQ \
+  --moisesdb /path/to/MoisesDB \
+  --rawstems /path/to/RawStems-48k
+```
+
+#### 方法3: 環境変数で指定
+
+```bash
+export MUSDB_PATH=/datasets/musdb
+export MOISESDB_PATH=/mnt/moises
+export RAWSTEMS_PATH=/data/rawstems
+./setup_datasets.sh
+```
+
+**このスクリプトは以下を自動実行：**
+- 指定したパスから `data/` へシンボリックリンク作成
 - 自動的に mixture.wav / vocals.wav ペアを検索
-- train/val 分割したFileListを生成
+- train/val 分割したFileListを生成（lists/train_vocals.txt, lists/val_vocals.txt）
 
 ### 4. 手動でのデータセット準備（初めての場合）
 
@@ -129,12 +147,16 @@ loss:
 
 ### 環境変数での設定
 
-```bash
-# データセットパスを環境変数で指定することも可能
-export MUSDB_PATH=/data/MUSDB18-48k
-export MOISESDB_PATH=/data/MoisesDB-48k
-export RAWSTEMS_PATH=/data/RawStems-48k
+データセットパスを環境変数で指定することも可能：
 
+```bash
+# setup_datasets.sh 実行時
+export MUSDB_PATH=/data/MUSDB18-HQ
+export MOISESDB_PATH=/data/MoisesDB
+export RAWSTEMS_PATH=/data/RawStems-48k
+./setup_datasets.sh
+
+# その後、訓練開始
 python train.py --config config.yaml
 ```
 
@@ -280,9 +302,9 @@ NVIDIA A100 40GB での参考値：
 ```bibtex
 @software{msrkit2025,
   title={MSRKit: Music Source Restoration with HTDemucs-CUNet},
-  author={Your Name},
+  author={axion15tth},
   year={2025},
-  url={https://github.com/yourusername/MSRKit}
+  url={https://github.com/axion15tth/MSRKit}
 }
 ```
 
@@ -298,4 +320,4 @@ MIT License
 
 ## サポート
 
-Issue: https://github.com/yourusername/MSRKit/issues
+Issue: https://github.com/axion15tth/MSRKit/issues

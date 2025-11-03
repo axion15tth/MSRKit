@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setup script for MSRKit datasets
-# Usage: ./setup_datasets.sh /path/to/datasets/parent/dir
+# Supports individual dataset paths or a parent directory
 
 set -e
 
@@ -11,102 +11,206 @@ cd "$SCRIPT_DIR"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== MSRKit Dataset Setup ===${NC}"
 echo
 
-# Check argument
+# Usage function
+show_usage() {
+    echo -e "${YELLOW}Usage:${NC}"
+    echo "  Option 1 (Individual paths):"
+    echo "    $0 --musdb /path/to/MUSDB18-HQ --moisesdb /path/to/MoisesDB --rawstems /path/to/RawStems"
+    echo
+    echo "  Option 2 (Parent directory):"
+    echo "    $0 /parent/directory"
+    echo
+    echo "  Option 3 (Environment variables):"
+    echo "    export MUSDB_PATH=/path/to/MUSDB18-HQ"
+    echo "    export MOISESDB_PATH=/path/to/MoisesDB"
+    echo "    export RAWSTEMS_PATH=/path/to/RawStems"
+    echo "    $0"
+    echo
+    echo -e "${YELLOW}Options:${NC}"
+    echo "  --musdb PATH       Path to MUSDB18-HQ dataset"
+    echo "  --moisesdb PATH    Path to MoisesDB dataset"
+    echo "  --rawstems PATH    Path to RawStems dataset"
+    echo "  --help             Show this help message"
+    echo
+    echo -e "${YELLOW}Examples:${NC}"
+    echo "  # All datasets in one parent directory"
+    echo "  $0 /data"
+    echo
+    echo "  # Datasets in different locations"
+    echo "  $0 --musdb /datasets/musdb --moisesdb /mnt/moises --rawstems /data/rawstems"
+    echo
+}
+
+# Parse arguments
+MUSDB_PATH=""
+MOISESDB_PATH=""
+RAWSTEMS_PATH=""
+PARENT_DIR=""
+
 if [ $# -eq 0 ]; then
-    echo -e "${YELLOW}Usage: $0 /path/to/datasets/parent/dir${NC}"
-    echo
-    echo "Example: If you have:"
-    echo "  /data/MUSDB18-HQ/"
-    echo "  /data/MoisesDB/"
-    echo "  /data/RawStems-48k/"
-    echo
-    echo "Run: $0 /data"
-    echo
-    exit 1
+    # Try environment variables
+    MUSDB_PATH="${MUSDB_PATH:-}"
+    MOISESDB_PATH="${MOISESDB_PATH:-}"
+    RAWSTEMS_PATH="${RAWSTEMS_PATH:-}"
+
+    if [ -z "$MUSDB_PATH" ] && [ -z "$MOISESDB_PATH" ] && [ -z "$RAWSTEMS_PATH" ]; then
+        show_usage
+        exit 1
+    fi
+elif [ $# -eq 1 ]; then
+    if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+        show_usage
+        exit 0
+    fi
+    PARENT_DIR="$1"
+else
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --musdb)
+                MUSDB_PATH="$2"
+                shift 2
+                ;;
+            --moisesdb)
+                MOISESDB_PATH="$2"
+                shift 2
+                ;;
+            --rawstems)
+                RAWSTEMS_PATH="$2"
+                shift 2
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Error: Unknown option $1${NC}"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
 fi
-
-DATASETS_PARENT="$1"
-
-if [ ! -d "$DATASETS_PARENT" ]; then
-    echo -e "${RED}Error: Directory $DATASETS_PARENT does not exist${NC}"
-    exit 1
-fi
-
-echo "Datasets parent directory: $DATASETS_PARENT"
-echo
 
 # Create data directory if not exists
 mkdir -p data
+
+# Function to find dataset
+find_dataset() {
+    local base_path="$1"
+    local variants=("${@:2}")
+
+    for variant in "${variants[@]}"; do
+        if [ -d "$base_path/$variant" ]; then
+            echo "$base_path/$variant"
+            return 0
+        fi
+    done
+
+    # Check if base_path itself matches
+    for variant in "${variants[@]}"; do
+        if [[ "$base_path" == *"$variant"* ]] && [ -d "$base_path" ]; then
+            echo "$base_path"
+            return 0
+        fi
+    done
+
+    return 1
+}
 
 # Function to create symlink
 create_link() {
     local source="$1"
     local target="$2"
     local name="$3"
-    
-    if [ -d "$source" ] || [ -L "$source" ]; then
-        echo -e "${GREEN}✓${NC} Found $name at: $source"
-        if [ ! -L "$target" ] && [ ! -d "$target" ]; then
-            ln -s "$source" "$target"
-            echo "  → Created symlink: $target"
-        elif [ -L "$target" ]; then
-            echo "  → Symlink already exists: $target"
-        else
-            echo "  → Directory already exists: $target"
-        fi
-        return 0
-    else
-        echo -e "${YELLOW}⚠${NC} $name not found at: $source"
+
+    if [ -z "$source" ] || [ ! -d "$source" ]; then
+        echo -e "${YELLOW}⚠${NC} $name not found or not specified"
         return 1
     fi
+
+    # Convert to absolute path
+    source=$(cd "$source" && pwd)
+
+    echo -e "${GREEN}✓${NC} Found $name at: $source"
+
+    if [ -L "$target" ]; then
+        # Symlink exists - check if it points to the same location
+        existing=$(readlink -f "$target")
+        if [ "$existing" == "$source" ]; then
+            echo "  → Symlink already exists: $target"
+        else
+            echo "  → Updating symlink: $target"
+            rm "$target"
+            ln -s "$source" "$target"
+        fi
+    elif [ -d "$target" ] && [ ! -L "$target" ]; then
+        echo "  → Directory already exists: $target"
+    else
+        ln -s "$source" "$target"
+        echo "  → Created symlink: $target"
+    fi
+    return 0
 }
 
-# Detect and link datasets
+# Detect datasets
 FOUND_DATASETS=()
 
-echo "Searching for datasets..."
+echo -e "${BLUE}Searching for datasets...${NC}"
 echo
 
-# MUSDB18 variants
-for variant in MUSDB18-HQ MUSDB18-48k MUSDB18; do
-    if create_link "$DATASETS_PARENT/$variant" "data/$variant" "$variant"; then
-        FOUND_DATASETS+=("data/$variant")
-        break
+# If parent directory is specified, search for datasets
+if [ -n "$PARENT_DIR" ]; then
+    if [ ! -d "$PARENT_DIR" ]; then
+        echo -e "${RED}Error: Directory $PARENT_DIR does not exist${NC}"
+        exit 1
     fi
-done
 
-# MoisesDB variants
-for variant in MoisesDB-48k MoisesDB moisesdb; do
-    if create_link "$DATASETS_PARENT/$variant" "data/MoisesDB-48k" "MoisesDB"; then
-        FOUND_DATASETS+=("data/MoisesDB-48k")
-        break
-    fi
-done
+    echo "Parent directory: $PARENT_DIR"
+    echo
 
-# RawStems variants
-for variant in RawStems-48k RawStems rawstems; do
-    if create_link "$DATASETS_PARENT/$variant" "data/RawStems-48k" "RawStems"; then
-        FOUND_DATASETS+=("data/RawStems-48k")
-        break
+    # Auto-detect datasets in parent directory
+    if [ -z "$MUSDB_PATH" ]; then
+        MUSDB_PATH=$(find_dataset "$PARENT_DIR" "MUSDB18-HQ" "MUSDB18-48k" "MUSDB18" "musdb18-hq" "musdb18") || true
     fi
-done
+    if [ -z "$MOISESDB_PATH" ]; then
+        MOISESDB_PATH=$(find_dataset "$PARENT_DIR" "MoisesDB-48k" "MoisesDB" "moisesdb-48k" "moisesdb") || true
+    fi
+    if [ -z "$RAWSTEMS_PATH" ]; then
+        RAWSTEMS_PATH=$(find_dataset "$PARENT_DIR" "RawStems-48k" "RawStems" "rawstems-48k" "rawstems") || true
+    fi
+fi
+
+# Create symlinks
+if create_link "$MUSDB_PATH" "data/MUSDB18-HQ" "MUSDB18-HQ"; then
+    FOUND_DATASETS+=("data/MUSDB18-HQ")
+fi
+
+if create_link "$MOISESDB_PATH" "data/MoisesDB-48k" "MoisesDB"; then
+    FOUND_DATASETS+=("data/MoisesDB-48k")
+fi
+
+if create_link "$RAWSTEMS_PATH" "data/RawStems-48k" "RawStems"; then
+    FOUND_DATASETS+=("data/RawStems-48k")
+fi
 
 echo
 echo "================================"
 
 if [ ${#FOUND_DATASETS[@]} -eq 0 ]; then
-    echo -e "${RED}Error: No datasets found in $DATASETS_PARENT${NC}"
+    echo -e "${RED}Error: No datasets found${NC}"
     echo
-    echo "Expected directory structure:"
-    echo "  $DATASETS_PARENT/"
-    echo "    ├── MUSDB18-HQ/ (or MUSDB18-48k/)"
-    echo "    ├── MoisesDB-48k/ (or MoisesDB/)"
-    echo "    └── RawStems-48k/ (or RawStems/)"
+    echo "Please specify dataset paths using one of these methods:"
+    echo "  1. Individual paths: --musdb, --moisesdb, --rawstems"
+    echo "  2. Parent directory: $0 /path/to/parent"
+    echo "  3. Environment variables: MUSDB_PATH, MOISESDB_PATH, RAWSTEMS_PATH"
+    echo
+    show_usage
     exit 1
 fi
 
@@ -148,7 +252,7 @@ echo "================================"
 echo -e "${GREEN}Setup complete!${NC}"
 echo
 echo "Next steps:"
-echo "  1. Review config.yaml (data paths should be auto-detected)"
+echo "  1. Review config.yaml if needed"
 echo "  2. Start training:"
 echo "     python train.py --config config.yaml"
 echo

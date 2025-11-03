@@ -11,7 +11,7 @@
 ## 1. リポジトリのクローン
 
 ```bash
-git clone https://github.com/yourusername/MSRKit.git
+git clone https://github.com/axion15tth/MSRKit.git
 cd MSRKit
 ```
 
@@ -28,16 +28,35 @@ pip install -r requirements.txt
 
 ## 3. データセットのセットアップ
 
-データセットが既にある場合、**1コマンド**でセットアップ完了：
+データセットが既にある場合、**setup_datasets.sh** を使用してセットアップ完了。
+3つの方法があります：
+
+### 方法1: 親ディレクトリ指定（すべて同じ親の下にある場合）
 
 ```bash
 ./setup_datasets.sh /data
 ```
 
-このスクリプトが自動で実行すること：
-- `/data/MUSDB18-HQ` → `data/MUSDB18-HQ` へのシンボリックリンク作成
-- `/data/MoisesDB` → `data/MoisesDB-48k` へのシンボリックリンク作成
-- `/data/RawStems-48k` → `data/RawStems-48k` へのシンボリックリンク作成
+### 方法2: 個別パス指定（それぞれ異なる場所にある場合）
+
+```bash
+./setup_datasets.sh \
+  --musdb /path/to/MUSDB18-HQ \
+  --moisesdb /path/to/MoisesDB \
+  --rawstems /path/to/RawStems-48k
+```
+
+### 方法3: 環境変数で指定
+
+```bash
+export MUSDB_PATH=/datasets/musdb
+export MOISESDB_PATH=/mnt/moises
+export RAWSTEMS_PATH=/data/rawstems
+./setup_datasets.sh
+```
+
+**このスクリプトが自動で実行すること：**
+- データセットへのシンボリックリンク作成（`data/` ディレクトリ内）
 - `mixture.wav` と `vocals.wav` のペアを自動検出
 - `lists/train_vocals.txt` と `lists/val_vocals.txt` を生成（train/val分割）
 

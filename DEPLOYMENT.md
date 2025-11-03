@@ -73,7 +73,7 @@ ssh user@target-server
 cd /workspace  # または任意のディレクトリ
 
 # クローン
-git clone https://github.com/yourusername/MSRKit.git
+git clone https://github.com/axion15tth/MSRKit.git
 cd MSRKit
 ```
 
@@ -327,13 +327,25 @@ done
 ### ワンライナー（フルセットアップ）
 
 ```bash
-# ターゲットサーバーで
-git clone https://github.com/yourusername/MSRKit.git && \
+# ターゲットサーバーで（データセットが /data 配下にある場合）
+git clone https://github.com/axion15tth/MSRKit.git && \
 cd MSRKit && \
 python -m venv venv && \
 source venv/bin/activate && \
 pip install -r requirements.txt && \
 ./setup_datasets.sh /data && \
+python train.py --config config.yaml
+```
+
+または、データセットが個別の場所にある場合：
+
+```bash
+git clone https://github.com/axion15tth/MSRKit.git && \
+cd MSRKit && \
+python -m venv venv && \
+source venv/bin/activate && \
+pip install -r requirements.txt && \
+./setup_datasets.sh --musdb /path/to/MUSDB18 --moisesdb /path/to/MoisesDB --rawstems /path/to/RawStems && \
 python train.py --config config.yaml
 ```
 
