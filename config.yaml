@@ -1,61 +1,120 @@
 project_name: "msrkit"
-exp_name: "melroformer_vocal_restoration"
+exp_name: "htdemucs_cunet_vocals"
 
+# ---- global ----
+sample_rate: 48000
+chunk_sec: 10
+peak_softlimit: 0.98
+dc_hp_hz: 20.0
+
+# ---- model ----
 model:
-  name: "MelRoFormer"
-  params:
-    hidden_channels: 128
-    num_layers: 12
-    num_heads: 4
-    window_size: 2048
-    hop_size: 512
-    sample_rate: 48000
+  name: "HTDemucsCUNetGenerator"
+  stems: ["vocals","guitars","bass","keyboards","synthesizers","drums","percussions","orchestral"]
+  target: "vocals"
 
+  stage1_htdemucs:
+    base_channels: 64
+    depth: 4
+    stft_n_fft: 1024
+    stft_hop: 256
+    stft_win: 1024
+    freq_ctx_channels: 128
+    bottleneck_layers: 3
+    mixture_consistency: true
+    mc_mode: "uniform"
+
+  stage2_cunet:
+    depth: 5
+    channels: [64,128,256,384,512]
+    kernel_size: [3,3]
+    stft:
+      windows: [4096, 1024, 256]
+      hops:    [1024, 256, 64]
+    band_split_hz: [200, 2000, 8000]
+    crm_mag_limit: [1.5, 2.0, 3.0, 4.0]
+    use_mix_condition: true
+    film:
+      direction_dim: 10
+      use_alpha_hf: false
+
+  conditioning:
+    alpha_mode: "estimator"            # ["estimator","manual","auto_candidates"]
+    alpha_value: 1.0
+    alpha_candidates: [0.6, 1.0, 1.4]
+    direction_mode: "estimator"        # ["estimator","zero","manual"]
+    direction_manual: null
+
+# ---- degradation estimator ----
+deg_estimator:
+  alpha_min: 0.4
+  alpha_max: 1.6
+  third_octave: true
+  use_hnr_proxy: false
+  use_stem_stats: false
+
+# ---- discriminators ----
 discriminators:
   - name: "MultiFrequencyDiscriminator"
     params:
       nch: 1
       window_sizes: [2048, 1024, 512]
       sample_rate: 48000
-      norm: True
+      norm: true
 
+# ---- data ----
 data:
   sample_rate: 48000
-  clip_duration: 3.0
+  clip_duration: 10.0
+
+  # ★ 推奨: FileList（各行: mix_path|target_path）
+  #train_file_list: "lists/train_vocals.txt"
+  # オプション: RawStems を使うなら train_file_list は消し、こちらを使う
   train_dataset:
     target_stem: "Voc"
-    root_directory: "/path/to/your/training/data/dir"
-    apply_augmentation: True
+    root_directory: "/ABSOLUTE/PATH/TO/STEMS"   # ← 実パスに変更
+    apply_augmentation: true
     snr_range: [0.0, 10.0]
+
   dataloader_params:
-    batch_size: 4
+    batch_size: 8
     num_workers: 8
 
+# ---- optim ----
 optimizer_g:
+  name: "adamw"
   lr: 0.0002
-  betas: [0.8, 0.99]
+  betas: [0.9, 0.95]
+  weight_decay: 0.0001
 
 optimizer_d:
+  name: "adamw"
   lr: 0.0002
-  betas: [0.8, 0.99]
+  betas: [0.9, 0.95]
+  weight_decay: 0.0001
 
 scheduler:
-  warm_up_steps: 10000
+  name: "cosine"
+  warm_up_steps: 5000
 
-losses:
-  gan_type: 'lsgan'
-  lambda_recon: 100.0
-  lambda_feat: 2.0
-  lambda_gan: 1.0
-  reconstruction_loss:
-    sample_rate: 48000
-    n_fft: [1024, 2048, 512]
-    hop_length: [256, 512, 128]
-    n_mels: [80, 160, 40]
+# ---- loss（最小）----
+loss:
+  sisnr: 1.0
+  l1_wave: 1.0
+  mrstft: { weight: 0.5, windows: [4096,1024,256], hops: [1024,256,64] }
+  # CLAP 系は最初は無効（laion-clap 導入後に上げる）
+  clap_embed: 0.0
+  fad_proxy: 0.0
+  # Mixture 再構成（単ステム学習に有効）
+  mixture_reconstruct: 0.5
+  # GAN
+  gan: { type: "hinge", weight: 0.05, fm_weight: 0.05 }
 
+# ---- trainer ----
 trainer:
-  max_steps: 1000000
+  save_dir: "runs"        # ★ 追加
+  max_steps: 400000
   log_every_n_steps: 100
   checkpoint_save_interval: 10000
   devices: [0]
-  precision: bf16-mixed
+  precision: "bf16-mixed"

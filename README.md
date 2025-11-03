@@ -1,104 +1,301 @@
-# Music Source Restoration Kit 
+# MSRKit - Music Source Restoration with HTDemucs-CUNet
 
-This repository offers a collection of model implementations, training configurations, and evaluation scripts to help you quickly get started with training and evaluating music source restoration models.
+HTDemucs-lite + Complex U-Net による高品質な音楽ソース復元（ボーカル分離）の実装。劣化した音源からクリーンなボーカルステムを抽出します。
 
-We have designed the repository to be a GAN-based framework; to learn more about the GANs, you can watch [this video](https://www.youtube.com/watch?v=TpMIssRdhco).
+## 特徴
 
-## Directory Structure
+- **2段階アーキテクチャ**: HTDemucs-lite (Stage 1) + Complex U-Net Restorer (Stage 2)
+- **劣化推定器**: 11の音響特徴から劣化パラメータ (α, direction) を自動推定
+- **劣化プロファイル**: スマホ録音、ストリーミングコーデック、重劣化の3種類に対応
+- **オンザフライ劣化**: 訓練時に自動で劣化を適用し、実環境に近い学習
+- **GAN訓練対応**: Discriminatorによる品質向上
+- **マルチデータセット**: MUSDB18, MoisesDB, 自前データを統合可能
 
-The repository is organized to separate concerns, making it easy to extend and maintain. Click on a directory to learn more about its contents.
+## アーキテクチャ
 
-`MSRKit/`
-- `README.md`                 <- You are here
-- `config.yaml`               <- Main configuration file for experiments
-- `train.py`                  <- Main script to start training
-- `unwrap.py`                 <- Utility to extract generator weights from a checkpoint
-- `data/`                     <- [Data loading and augmentation](./data/README.md)
-- `losses/`                   <- [Loss function implementations](./losses/README.md)
-- `models/`                   <- [Top-level generator model architectures](./models/README.md)
-- `modules/`                  <- [Core building blocks for models](./modules/README.md)
-     - `discriminator/`       <- Discriminator architectures
-     - `generator/`           <- Reusable generator components
-
-## Run Inference On The Pretrained Models
-
-Download from https://huggingface.co/yongyizang/MSRChallengeBaseline, then run `inference.py` to evaluate the pretrained models.
-
-```bash
-python inference.py --config config.yaml --checkpoint path/to/your/checkpoint.ckpt --input_dir path/to/your/input/directory --output_dir path/to/your/output/directory
+```
+Input: wave_mix (B, 2, T)
+    ↓
+[DegEstimator] → α̂ (strength), d̂ (direction)
+    ↓
+[Stage 1: HTDemucs-lite] → ŝ_stem (coarse separation)
+    ↓
+[Stage 2: Complex U-Net] → restored stem (B, 2, T)
 ```
 
-Every `*.flac` file in the `input_dir` will be processed and saved in the `output_dir`.
+- **Stage 1**: 時間領域U-Net（28M params）
+- **Stage 2**: STFT領域Complex U-Net（86M params）
+- **Total**: ~114M parameters
 
-## Evaluation Script
+## クイックスタート
 
-Evaluation script is provided in the `calculate_metrics.py` file.
-
-```bash
-python calculate_metrics.py {file list}
-```
-
-The evaluation script is expecting a file list with each line in the format of `{target path}|{output path}`. Results will be printed to the console; you can use ` .. > output.txt` to redirect the output to a file.
-
-We recommend modifying this script to fit your needs.
-
----
-
-For a comprehensive list of arguments, please check each individual script.
-
----
-
-## 🚀 Getting Started
-
-### 1. Setup
-
-First, clone the repository and install the required dependencies.
+### 1. リポジトリのクローン
 
 ```bash
-git clone https://github.com/yongyizang/MSRKit.git
+git clone https://github.com/yourusername/MSRKit.git
 cd MSRKit
+```
+
+### 2. 環境構築
+
+```bash
+# Python 3.8+ 推奨
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 依存関係のインストール
 pip install -r requirements.txt
 ```
 
-*Note: The `FAD_CLAP` metric requires `laion-clap`. Please install it via `pip install laion-clap`.*
+### 3. データセットの配置
 
-### 2. Configure Your Experiment
+既存のデータセットがある場合、`setup_datasets.sh` を使用：
 
-Modify the `config.yaml` file to set up your dataset paths, model hyperparameters, and training settings.
+```bash
+# データセットの親ディレクトリを指定
+./setup_datasets.sh /path/to/your/datasets
 
-Key sections to update:
+# 例: /data 配下に MUSDB18-HQ/, MoisesDB/, RawStems-48k/ がある場合
+./setup_datasets.sh /data
+```
 
-  - `data.train_dataset.root_directory`: Path to your training data.
-  - `data.train_dataset.file_list`: Path to a `.txt` file listing your training samples.
-  - `model`: Choose the generator model and its parameters.
-  - `discriminators`: Add and configure one or more discriminators.
-  - `trainer`: Set training parameters like `max_steps`, `devices` (GPU IDs), and `precision`.
+このスクリプトは以下を実行：
+- データディレクトリへのシンボリックリンク作成
+- 自動的に mixture.wav / vocals.wav ペアを検索
+- train/val 分割したFileListを生成
 
-### 3. Start Training
+### 4. 手動でのデータセット準備（初めての場合）
 
-Launch the training process using the `train.py` script and your configuration file.
+詳細は [DATASET_PREPARATION.md](DATASET_PREPARATION.md) を参照。
+
+```bash
+# MUSDB18-HQ
+python tools/resample_to_48k.py --in_root /data/MUSDB18-HQ --out_root data/MUSDB18-48k
+
+# MoisesDB
+python tools/export_moisesdb_wavs.py --moises_root /data/moisesdb --out_root data/MoisesDB-48k
+
+# RawStems（自前データ）
+python tools/resample_to_48k.py --in_root /data/RawStems --out_root data/RawStems-48k
+
+# FileList生成
+python tools/build_filelists.py \
+  --roots data/MUSDB18-48k data/MoisesDB-48k data/RawStems-48k \
+  --out_dir lists
+```
+
+### 5. 訓練の開始
 
 ```bash
 python train.py --config config.yaml
 ```
 
-### 4. Unwrap Generator Weights
-
-After training, you may want to use the generator model for inference without the rest of the Lightning module. The `unwrap.py` script extracts the generator's `state_dict` from a checkpoint file.
+訓練ログは `runs/msrkit/HTDemucsCUNetGenerator/` に保存されます。
 
 ```bash
-python unwrap.py --ckpt "path/to/your/checkpoint.ckpt" --out "path/to/save/generator.pth"
+# TensorBoard で確認
+tensorboard --logdir runs
 ```
 
-This creates a clean `.pth` file containing only the generator's weights. This is useful if you want to use the generator model for inference without the rest of the Lightning module, or if you want to fine-tune the generator model on a different dataset.
+## 設定
 
-## Building Your First Model
+### config.yaml の主要パラメータ
 
-To build your first model, you can reference the model architecture in the `models/` directory. You can also refer to the `modules/` directory for the building blocks used in the model architectures. At a very high level, we have implemented the following processing blocks:
-- Spectral Operations: `Fourier`, `Band`
-- Sequence Modeling Blocks: `RoFormerBlock` (and an example of modified attention pattern, `AttentionRegisterRoFormerBlock`), `RNNBlock`, `ConvNeXt1DBlock`
-- Convolutional Blocks: `ConvNeXt2DBlock`, `ConvNeXt1DBlock`
-- Discriminator Architectures: `MultiPeriodDiscriminator`, `MultiScaleDiscriminator`, `MultiResolutionDiscriminator`, `MultiFrequencyDiscriminator`
+```yaml
+# データパス（自動設定される場合は不要）
+data:
+  train_file_list: "lists/train_vocals.txt"  # setup_datasets.sh で生成
+  
+# モデル
+model:
+  name: "HTDemucsCUNetGenerator"
+  target: "vocals"  # 分離対象のステム
+  
+# 訓練
+trainer:
+  max_steps: 400000
+  batch_size: 8
+  devices: [0]
+  precision: "bf16-mixed"
+  
+# 損失関数
+loss:
+  sisnr: 1.0          # SI-SNR損失
+  l1_wave: 1.0        # L1損失
+  mrstft: 0.5         # Multi-Resolution STFT損失
+  mixture_reconstruct: 0.5  # ミックス再構成損失
+  gan: 0.05           # GAN損失
+```
 
-## ⚖️ License
-This project is licensed under the MIT License.
+### 環境変数での設定
+
+```bash
+# データセットパスを環境変数で指定することも可能
+export MUSDB_PATH=/data/MUSDB18-48k
+export MOISESDB_PATH=/data/MoisesDB-48k
+export RAWSTEMS_PATH=/data/RawStems-48k
+
+python train.py --config config.yaml
+```
+
+## 推論
+
+```bash
+python inference.py \
+  --checkpoint runs/msrkit/HTDemucsCUNetGenerator/checkpoints/step_100000.ckpt \
+  --input input.wav \
+  --output output.wav
+```
+
+## データセット
+
+サポートされているデータセット：
+
+- **MUSDB18 / MUSDB18-HQ**: 150曲、4ステム（vocals, bass, drums, other）
+- **MoisesDB**: 240曲、階層化ステム
+- **RawStems**: 自前の高品質ステムコレクション
+
+### ディレクトリ構造
+
+```
+data/
+├── MUSDB18-48k/
+│   ├── train/
+│   │   ├── song1/
+│   │   │   ├── mixture.wav
+│   │   │   └── vocals.wav
+│   │   └── ...
+│   └── test/
+├── MoisesDB-48k/
+└── RawStems-48k/
+
+lists/
+├── train_vocals.txt  # mix_path|target_path のリスト
+└── val_vocals.txt
+```
+
+## 劣化プロファイル
+
+訓練時に自動適用される劣化（オンザフライ）：
+
+| Profile | 想定シーン | 処理内容 |
+|---------|----------|---------|
+| **DT1** | スマホ/環境録音 | HPF, LPF, ダウンサンプリング, コンプ, リバーブ, ノイズ |
+| **DT2** | ストリーミング/コーデック | EQ傾斜, AAC/OPUS/MP3往復, サチュレーション |
+| **DT3** | ブートレグ/重劣化 | 帯域制限, 強コンプ, 長リバーブ, ノイズ, クリップ |
+
+実装: `data/degradations.py`
+
+## プロジェクト構成
+
+```
+MSRKit/
+├── config.yaml              # 訓練設定
+├── train.py                 # 訓練スクリプト
+├── inference.py             # 推論スクリプト
+├── requirements.txt         # 依存関係
+├── setup_datasets.sh        # データセット自動設定
+│
+├── models/
+│   ├── htdmucs_cunet.py    # メインモデル
+│   └── __init__.py
+│
+├── modules/
+│   ├── condition/
+│   │   └── deg_estimator.py       # 劣化推定器
+│   ├── generator/
+│   │   ├── htdemucs.py           # Stage 1: HTDemucs-lite
+│   │   ├── complex_unet.py       # Stage 2: Complex U-Net
+│   │   └── complex_ops.py        # 複素数演算
+│   └── discriminator/
+│
+├── losses/
+│   ├── sisnr.py            # SI-SNR損失
+│   ├── mrstft.py           # Multi-Resolution STFT損失
+│   ├── complex_loss.py     # Complex損失
+│   ├── consistency.py      # Mixture再構成損失
+│   ├── fad_clap_approx.py  # CLAP/FAD損失
+│   └── gan_loss.py         # GAN損失
+│
+├── data/
+│   ├── dataset.py          # データローダー
+│   ├── degradations.py     # 劣化プロファイル
+│   ├── augment.py          # データ拡張
+│   └── stft.py             # STFT処理
+│
+├── tools/
+│   ├── export_moisesdb_wavs.py    # MoisesDB変換
+│   ├── resample_to_48k.py         # リサンプル
+│   ├── build_filelists.py         # FileList生成
+│   └── render_degraded_corpus.py  # オフライン劣化生成
+│
+└── docs/
+    └── DATASET_PREPARATION.md     # データセット準備詳細
+```
+
+## トラブルシューティング
+
+### CUDA Out of Memory
+
+```yaml
+# config.yaml で batch_size を削減
+trainer:
+  batch_size: 4  # 8 → 4
+```
+
+### 依存関係エラー
+
+```bash
+# pedalboard（データ拡張用）
+pip install pedalboard
+
+# laion-clap（CLAP/FAD損失用、オプション）
+pip install laion-clap
+# または config.yaml で無効化
+loss:
+  clap_embed: 0.0
+  fad_proxy: 0.0
+```
+
+### FFmpeg not found
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# または DT2 プロファイル（コーデック劣化）を無効化
+```
+
+## パフォーマンス
+
+NVIDIA A100 40GB での参考値：
+- **Batch size 8**: ~15 sec/step
+- **メモリ使用量**: ~20 GB
+- **訓練時間**: 400k steps ≈ 7 days
+
+## 引用
+
+このコードを使用する場合は、以下を引用してください：
+
+```bibtex
+@software{msrkit2025,
+  title={MSRKit: Music Source Restoration with HTDemucs-CUNet},
+  author={Your Name},
+  year={2025},
+  url={https://github.com/yourusername/MSRKit}
+}
+```
+
+## ライセンス
+
+MIT License
+
+## 謝辞
+
+- **HTDemucs**: [facebookresearch/demucs](https://github.com/facebookresearch/demucs)
+- **MUSDB18**: [sigsep/sigsep-mus-db](https://github.com/sigsep/sigsep-mus-db)
+- **MoisesDB**: [moises-ai/moises-db](https://github.com/moises-ai/moises-db)
+
+## サポート
+
+Issue: https://github.com/yourusername/MSRKit/issues

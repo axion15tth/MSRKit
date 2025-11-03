@@ -1,113 +1,108 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+MSRKit Inference Script
+
+Usage:
+    python inference.py \
+        --checkpoint runs/msrkit/HTDemucsCUNetGenerator/checkpoints/step_100000.ckpt \
+        --input input.wav \
+        --output output_vocals.wav
+"""
+
 import argparse
-import yaml
-from pathlib import Path
-from typing import Dict, Any
-
 import torch
-import torch.nn as nn
-import soundfile as sf
-import numpy as np
-from tqdm import tqdm
+import torchaudio
+from pathlib import Path
+from train import MusicRestorationModule
 
-from models import MelRNN, MelRoFormer, UNet
+def load_model(checkpoint_path):
+    """Load trained model from checkpoint"""
+    print(f"Loading model from: {checkpoint_path}")
+    model = MusicRestorationModule.load_from_checkpoint(
+        checkpoint_path,
+        map_location='cpu',
+        strict=False
+    )
+    model.eval()
+    return model
 
+def load_audio(path, target_sr=48000):
+    """Load audio file and resample to 48kHz stereo"""
+    wav, sr = torchaudio.load(path)
+    
+    # Convert to stereo
+    if wav.size(0) == 1:
+        wav = wav.repeat(2, 1)
+    elif wav.size(0) > 2:
+        wav = wav[:2, :]
+    
+    # Resample
+    if sr != target_sr:
+        wav = torchaudio.functional.resample(wav, sr, target_sr)
+    
+    return wav, target_sr
 
-def load_generator(config: Dict[str, Any], checkpoint_path: str, device: str = 'cuda') -> nn.Module:
-    """Initialize and load the generator model from unwrapped checkpoint."""
-    model_cfg = config['model']
+def save_audio(wav, path, sr=48000):
+    """Save audio to file"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Initialize generator based on config
-    if model_cfg['name'] == 'MelRNN':
-        generator = MelRNN.MelRNN(**model_cfg['params'])
-    elif model_cfg['name'] == 'MelRoFormer':
-        generator = MelRoFormer.MelRoFormer(**model_cfg['params'])
-    elif model_cfg['name'] == 'MelUNet':
-        generator = UNet.MelUNet(**model_cfg['params'])
-    else:
-        raise ValueError(f"Unknown model name: {model_cfg['name']}")
+    # Ensure stereo
+    if wav.dim() == 3:
+        wav = wav.squeeze(0)
     
-    # Load unwrapped generator weights
-    state_dict = torch.load(checkpoint_path, map_location=device)
-    generator.load_state_dict(state_dict)
+    # Clamp to [-1, 1]
+    wav = torch.clamp(wav, -1.0, 1.0)
     
-    generator = generator.to(device)
-    generator.eval()
-    
-    return generator
+    torchaudio.save(path.as_posix(), wav.cpu(), sr)
+    print(f"Saved output to: {path}")
 
-
-def process_audio(audio: np.ndarray, generator: nn.Module, device: str = 'cuda') -> np.ndarray:
-    """Process a single audio array through the generator."""
-    # Convert to tensor: (channels, samples) -> (1, channels, samples)
-    if audio.ndim == 1:
-        audio = audio[np.newaxis, :]  # Add channel dimension for mono
+@torch.no_grad()
+def inference(model, input_path, output_path, device='cuda'):
+    """Run inference on input audio"""
     
-    audio_tensor = torch.from_numpy(audio).float().to(device)
+    # Load audio
+    print(f"Loading input: {input_path}")
+    wav, sr = load_audio(input_path)
     
-    # Run inference
-    with torch.no_grad():
-        output_tensor = generator(audio_tensor)
+    # Move to device
+    model = model.to(device)
+    wav = wav.unsqueeze(0).to(device)  # (1, 2, T)
     
-    # Convert back to numpy: (1, channels, samples) -> (channels, samples)
-    output_audio = output_tensor.cpu().numpy()
+    print(f"Input shape: {wav.shape}")
+    print(f"Running inference on {device}...")
     
-    return output_audio
-
+    # Run model
+    output = model(wav)
+    
+    print(f"Output shape: {output.shape}")
+    
+    # Save result
+    save_audio(output, output_path, sr)
+    
+    print("Inference complete!")
 
 def main():
-    parser = argparse.ArgumentParser(description="Run inference on audio files using trained generator")
-    parser.add_argument("--config", type=str, required=True, help="Path to config.yaml")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to unwrapped generator weights (.pth)")
-    parser.add_argument("--input_dir", type=str, required=True, help="Directory containing input .flac files")
-    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save processed audio")
-    parser.add_argument("--device", type=str, default="cuda", help="Device to run inference on (cuda/cpu)")
+    parser = argparse.ArgumentParser(description="MSRKit Inference")
+    parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint (.ckpt)")
+    parser.add_argument("--input", required=True, help="Input audio file")
+    parser.add_argument("--output", required=True, help="Output audio file")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
+                       help="Device to run inference on")
     args = parser.parse_args()
     
-    # Load config
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Setup paths
-    input_dir = Path(args.input_dir)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Get all .flac files
-    audio_files = sorted(input_dir.glob("*.flac"))
-    
-    if len(audio_files) == 0:
-        print(f"No .flac files found in {input_dir}")
-        return
-    
-    print(f"Found {len(audio_files)} audio files")
+    # Validate paths
+    if not Path(args.checkpoint).exists():
+        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
+    if not Path(args.input).exists():
+        raise FileNotFoundError(f"Input file not found: {args.input}")
     
     # Load model
-    print(f"Loading generator from {args.checkpoint}...")
-    generator = load_generator(config, args.checkpoint, device=args.device)
-    print("Model loaded successfully")
+    model = load_model(args.checkpoint)
     
-    # Process each file
-    for audio_file in tqdm(audio_files, desc="Processing audio files"):
-        # Load audio
-        audio, sr = sf.read(audio_file)
-        
-        # Transpose if needed: soundfile loads as (samples, channels)
-        if audio.ndim == 2:
-            audio = audio.T  # Convert to (channels, samples)
-        
-        # Process through generator
-        output_audio = process_audio(audio, generator, device=args.device)
-        
-        # Transpose back for saving: (channels, samples) -> (samples, channels)
-        if output_audio.ndim == 2:
-            output_audio = output_audio.T
-        
-        # Save with same filename
-        output_path = output_dir / audio_file.name
-        sf.write(output_path, output_audio, sr)
-    
-    print(f"\nProcessing complete! Output saved to {output_dir}")
+    # Run inference
+    inference(model, args.input, args.output, device=args.device)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

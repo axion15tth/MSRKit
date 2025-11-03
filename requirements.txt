@@ -7,3 +7,8 @@ tomli==2.0.1
 torch==2.8.0
 torchaudio==2.8.0
 pytorch-lightning
+laion-clap
+pedalboard
+numpy
+pyyaml
+tensorboard

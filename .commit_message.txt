@@ -1,0 +1,36 @@
+feat: Complete HTDemucs-CUNet implementation with degradation profiles
+
+Major Features:
+- HTDemucs-lite + Complex U-Net two-stage architecture (114M params)
+- Degradation estimator with 11 acoustic features
+- On-the-fly degradation profiles (DT1/2/3) for training
+- GAN training with multiple discriminators
+- Multi-dataset support (MUSDB18, MoisesDB, RawStems)
+
+Core Components:
+- Stage 1: HTDemucs-lite (28M params)
+- Stage 2: Complex U-Net Restorer (86M params)
+- Degradation Estimator (141K params)
+
+Loss Functions:
+- SI-SNR, L1 waveform, Multi-Resolution STFT
+- Complex Loss, Mixture Reconstruct Loss
+- CLAP/FAD proxy losses (optional)
+- GAN + Feature Matching losses
+
+Tools:
+- setup_datasets.sh: One-command dataset setup
+- Data preparation scripts for MUSDB18/MoisesDB
+- Degradation profiles with FFmpeg codec support
+- Inference script
+
+Documentation:
+- Comprehensive README with quickstart
+- QUICKSTART.md for server deployment
+- DATASET_PREPARATION.md for detailed data setup
+
+Tested on:
+- Model forward pass: ✓
+- All loss computations: ✓
+- Degradation profiles (DT1/2/3): ✓
+- Data pipeline: ✓
