@@ -204,6 +204,27 @@ ssh -L 6006:localhost:6006 user@target-server
 python train.py --config config.yaml
 ```
 
+**オプション: Weights & Biases (WandB) を使用する場合**
+
+WandBで実験を管理する場合：
+
+```bash
+# WandBにログイン（初回のみ）
+wandb login
+
+# config.yaml を編集してWandBを有効化
+# logging.wandb.enabled を true に設定
+
+# 訓練開始
+python train.py --config config.yaml
+```
+
+WandBを使用すると、ブラウザから以下を確認できます：
+- リアルタイムのloss curves
+- System metrics (GPU, CPU, メモリ使用率)
+- ハイパーパラメータの比較
+- 実験ノートと共有
+
 ### 3.3 バックグラウンド実行（推奨）
 
 ```bash

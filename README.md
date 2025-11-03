@@ -115,6 +115,28 @@ python train.py --config config.yaml
 tensorboard --logdir runs
 ```
 
+#### Weights & Biases (WandB) の使用
+
+WandBで実験を管理したい場合：
+
+1. WandBにログイン:
+```bash
+wandb login
+```
+
+2. `config.yaml`でWandBを有効化:
+```yaml
+logging:
+  wandb:
+    enabled: true
+    project: "msrkit"
+    entity: "your-username"  # あなたのWandBユーザー名
+    tags: ["vocals", "htdemucs-cunet"]
+    log_model: false  # チェックポイントをWandBにアップロードする場合はtrue
+```
+
+3. 訓練を開始すると自動的にWandBに記録されます
+
 ## 設定
 
 ### config.yaml の主要パラメータ
@@ -143,6 +165,15 @@ loss:
   mrstft: 0.5         # Multi-Resolution STFT損失
   mixture_reconstruct: 0.5  # ミックス再構成損失
   gan: 0.05           # GAN損失
+
+# ロギング
+logging:
+  tensorboard:
+    enabled: true
+  wandb:
+    enabled: false    # WandB使用時はtrueに
+    project: "msrkit"
+    entity: "your-username"
 ```
 
 ### 環境変数での設定

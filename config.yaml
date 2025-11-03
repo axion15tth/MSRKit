@@ -118,3 +118,19 @@ trainer:
   checkpoint_save_interval: 10000
   devices: [0]
   precision: "bf16-mixed"
+
+# ---- logging ----
+logging:
+  # TensorBoard
+  tensorboard:
+    enabled: true
+
+  # Weights & Biases (WandB)
+  wandb:
+    enabled: false                    # Set to true to enable WandB logging
+    project: "msrkit"                 # WandB project name
+    entity: null                      # Your WandB username or team (optional)
+    name: null                        # Run name (auto-generated if null)
+    tags: []                          # Tags for organizing runs, e.g., ["vocals", "experiment1"]
+    notes: null                       # Notes about this run (optional)
+    log_model: false                  # Set to true to save model checkpoints to WandB

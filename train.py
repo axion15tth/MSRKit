@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 
 # ---- Datasets ----
@@ -440,13 +440,44 @@ def main():
         auto_insert_metric_name=False
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
-    
-    # Logger
-    logger = TensorBoardLogger(
-        save_dir=str(save_root),
-        name=project,
-        version=exp_name
-    )
+
+    # Logger(s)
+    loggers = []
+
+    # TensorBoard (always enabled by default)
+    use_tensorboard = config.get('logging', {}).get('tensorboard', {}).get('enabled', True)
+    if use_tensorboard:
+        tb_logger = TensorBoardLogger(
+            save_dir=str(save_root),
+            name=project,
+            version=exp_name
+        )
+        loggers.append(tb_logger)
+
+    # WandB (optional)
+    wandb_cfg = config.get('logging', {}).get('wandb', {})
+    use_wandb = wandb_cfg.get('enabled', False)
+    if use_wandb:
+        wandb_project = wandb_cfg.get('project', project)
+        wandb_name = wandb_cfg.get('name', f"{project}_{exp_name}")
+        wandb_entity = wandb_cfg.get('entity', None)
+        wandb_tags = wandb_cfg.get('tags', [])
+        wandb_notes = wandb_cfg.get('notes', None)
+
+        wandb_logger = WandbLogger(
+            project=wandb_project,
+            name=wandb_name,
+            entity=wandb_entity,
+            tags=wandb_tags,
+            notes=wandb_notes,
+            save_dir=str(save_dir),
+            log_model=wandb_cfg.get('log_model', False),
+            config=config
+        )
+        loggers.append(wandb_logger)
+
+    # Use single logger or list of loggers
+    logger = loggers[0] if len(loggers) == 1 else loggers
     
     # Trainer
     trainer = pl.Trainer(

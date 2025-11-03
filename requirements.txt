@@ -12,3 +12,4 @@ pedalboard
 numpy
 pyyaml
 tensorboard
+wandb
